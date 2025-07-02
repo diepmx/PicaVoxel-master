@@ -1,0 +1,58 @@
+# ==== UNITY ENGINE ====
+
+*.cs       text diff=csharp
+*.shader   text
+*.cginc    text
+*.hlsl     text
+*.compute  text
+*.glsl     text
+*.txt      text
+*.md       text
+*.json     text
+*.xml      text
+*.yaml     text
+*.yml      text
+*.asmdef   text
+
+*.unity    text merge=unityyamlmerge eol=lf
+*.prefab   text merge=unityyamlmerge eol=lf
+*.asset    text merge=unityyamlmerge eol=lf
+*.mat      text merge=unityyamlmerge eol=lf
+*.anim     text merge=unityyamlmerge eol=lf
+*.controller         text merge=unityyamlmerge eol=lf
+*.overrideController text merge=unityyamlmerge eol=lf
+*.physicMaterial2D   text merge=unityyamlmerge eol=lf
+*.physicsMaterial    text merge=unityyamlmerge eol=lf
+*.renderTexture      text merge=unityyamlmerge eol=lf
+*.mask               text merge=unityyamlmerge eol=lf
+*.spriteatlas        text merge=unityyamlmerge eol=lf
+*.signal             text merge=unityyamlmerge eol=lf
+*.timeline           text merge=unityyamlmerge eol=lf
+
+# Image/audio/model/binary files
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.psd    binary
+*.tga    binary
+*.tif    binary
+*.tiff   binary
+*.mp3    binary
+*.ogg    binary
+*.wav    binary
+*.fbx    binary
+*.FBX    binary
+*.obj    binary
+*.mp4    binary
+*.mov    binary
+*.avi    binary
+*.pdf    binary
+*.unitypackage binary
+*.dll    binary
+*.exe    binary
+
+# Unity meta files là text
+*.meta text
+
+# ==== UNITY YAML MERGE ====
+# Nếu muốn merge scene/prefab thông minh cần cấu hình tool merge cho git
