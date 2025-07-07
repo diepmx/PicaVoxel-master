@@ -21,6 +21,10 @@ public class ModelRotator : MonoBehaviour
         Debug.Log("Chế độ hiện tại: " + (isPaintMode ? "TÔ" : "XOAY"));
         // Có thể cập nhật text/nút trên UI ở đây
     }
+    void Awake()
+    {
+        Application.targetFrameRate = 60;
+    }
 
     void Update()
     {
@@ -65,7 +69,7 @@ public class ModelRotator : MonoBehaviour
 
                 if (isPaintMode && !draggedTouch)
                 {
-                    Debug.Log("Tap mobile: gọi tô màu");
+                    //Debug.Log("Tap mobile: gọi tô màu");
                     IslandsClickBoom.ToMauTheoScreenPos(touch.position);
                 }
                 draggedTouch = false;
@@ -114,10 +118,21 @@ public class ModelRotator : MonoBehaviour
 
             if (isPaintMode && !draggedMouse)
             {
-                Debug.Log("Click PC: gọi tô màu");
+                //Debug.Log("Click PC: gọi tô màu");
                 IslandsClickBoom.ToMauTheoScreenPos(Input.mousePosition);
             }
             draggedMouse = false;
         }
     }
+    void LateUpdate()
+    {
+        // Update mesh 1 lần/frame nếu có volume tô mới
+        if (IslandsClickBoom.volumesToUpdate != null && IslandsClickBoom.volumesToUpdate.Count > 0)
+        {
+            foreach (var v in IslandsClickBoom.volumesToUpdate)
+                v.UpdateAllChunks();
+            IslandsClickBoom.volumesToUpdate.Clear();
+        }
+    }
+
 }
