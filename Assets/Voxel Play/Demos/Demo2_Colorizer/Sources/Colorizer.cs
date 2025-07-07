@@ -2,80 +2,131 @@
 using UnityEngine.UI;
 using VoxelPlay;
 
-namespace VoxelPlayDemos {
-				
-	public class Colorizer : MonoBehaviour {
+namespace VoxelPlayDemos
+{
 
-		public ModelDefinition modelToLoad;
-		public Font font;
-		public Shader textShader;
-		public Text eraseModeText, globalIllumText;
-		public GameObject colorButtonTemplate;
+    public class Colorizer : MonoBehaviour
+    {
+        public int brushSize = 2;
+        private Vector3? lastPaintWorldPos = null;
 
-		VoxelPlayEnvironment env;
-		float orbitDistance;
-		VoxelPlayFirstPersonController fps;
-		bool eraseMode;
-		byte[] saveGameData;
-		Color currentColor = Color.white;
-		int modelSize = 32;
-		int modelHeight = 32;
+        public ModelDefinition modelToLoad;
+        public Font font;
+        public Shader textShader;
+        public Text eraseModeText, globalIllumText;
+        public GameObject colorButtonTemplate;
 
-		void Start() {
-			env = VoxelPlayEnvironment.instance;
+        VoxelPlayEnvironment env;
+        float orbitDistance;
+        VoxelPlayFirstPersonController fps;
+        bool eraseMode;
+        byte[] saveGameData;
+        Color currentColor = Color.white;
+        int modelSize = 32;
+        int modelHeight = 32;
 
-			// Position player on the scene and setup orbit parameters
-			fps = (VoxelPlayFirstPersonController)env.characterController;
+        void Start()
+        {
+            env = VoxelPlayEnvironment.instance;
+            fps = (VoxelPlayFirstPersonController)env.characterController;
 
-			// Create scene objects
-			CreateCube();
-			CreateLabels();
-			CreateColorSwatch();
+            CreateCube();
+            CreateLabels();
+            CreateColorSwatch();
 
-			// Color the voxel in black when clicked OR place a new voxel
-			env.OnVoxelClick += (chunk, voxelIndex, buttonIndex) => {
-				if (buttonIndex == 0) {
-					if (!eraseMode) {
-						// If left click, change the color of voxel to white
-						env.VoxelSetColor(chunk, voxelIndex, currentColor);
-					}
-				} else {
-					// If right click, places a new voxel on top of this in the direction of the plane
-					Vector3d position = fps.crosshairHitInfo.voxelCenter + fps.crosshairHitInfo.normal;
-					env.VoxelPlace(position, Color.red, true);
-				}
-			};
-																
-			// Control erase mode
-			env.OnVoxelDamaged += (VoxelChunk chunk, int voxelIndex, ref int damage) => {
-				if (!eraseMode) {
-					damage = 0;
-				}
-			};
-		}
+            env.OnVoxelClick += (chunk, voxelIndex, buttonIndex) => {
+                if (buttonIndex == 0 && !eraseMode)
+                    env.VoxelSetColor(chunk, voxelIndex, currentColor);
+            };
+            env.OnVoxelDamaged += (VoxelChunk chunk, int voxelIndex, ref int damage) => {
+                if (!eraseMode) damage = 0;
+            };
+        }
 
-		void Update() {
-			// Manages orbit or free mode according to distance to model
-			fps.SetOrbitMode(fps.transform.position.sqrMagnitude > orbitDistance);
+        void Update()
+        {
+            fps.SetOrbitMode(fps.transform.position.sqrMagnitude > orbitDistance);
 
-			if (Input.GetKeyDown(KeyCode.X)) {
-				ToggleEraseMode();
-			}
-			if (Input.GetKeyDown(KeyCode.G)) {
-				ToggleGlobalIllum();
-			}
-			if (Input.GetKeyDown(KeyCode.F1)) {
-				LoadModel();
-			}
-			if (Input.GetKeyDown(KeyCode.F2)) {
-				SaveGame();
-			}
-			if (Input.GetKeyDown(KeyCode.F3)) {
-				LoadGame();
-			}
-		}
+            if (Input.GetKeyDown(KeyCode.X)) ToggleEraseMode();
+            if (Input.GetKeyDown(KeyCode.G)) ToggleGlobalIllum();
+            if (Input.GetKeyDown(KeyCode.F1)) LoadModel();
+            if (Input.GetKeyDown(KeyCode.F2)) SaveGame();
+            if (Input.GetKeyDown(KeyCode.F3)) LoadGame();
 
-		void ToggleEraseMode() {
+            if (Input.GetMouseButton(0))
+            {
+                Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+                VoxelHitInfo hit;
+                if (env.RayCast(ray, out hit))
+                {
+                    Vector3 pos = hit.voxelCenter;
+                    VoxelChunk chunk = hit.chunk;
+                    int voxelIndex = hit.voxelIndex;
+
+                    if (chunk != null && voxelIndex >= 0)
+                    {
+                        int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
+
+                        // Lấy chỉ số xyz trong chunk
+                        int cx = voxelIndex % chunkSize;
+                        int cy = (voxelIndex / chunkSize) % chunkSize;
+                        int cz = voxelIndex / (chunkSize * chunkSize);
+
+                        // Vẽ mượt khi kéo chuột
+                        if (lastPaintWorldPos.HasValue)
+                        {
+                            float dist = Vector3.Distance(lastPaintWorldPos.Value, pos);
+                            int steps = Mathf.CeilToInt(dist / 0.2f);
+                            for (int i = 0; i <= steps; i++)
+                            {
+                                Vector3 lerpPos = Vector3.Lerp(lastPaintWorldPos.Value, pos, i / (float)steps);
+                                PaintBrush(chunk, lerpPos, cx, cy, cz, currentColor, brushSize);
+                            }
+                        }
+                        else
+                        {
+                            PaintBrush(chunk, pos, cx, cy, cz, currentColor, brushSize);
+                        }
+                        lastPaintWorldPos = pos;
+                    }
+                }
+            }
+            else
+            {
+                lastPaintWorldPos = null;
+            }
+        }
+
+            // Hàm vẽ cực nhanh bằng index chunk (không raycast từng điểm)
+            void PaintBrush(VoxelChunk chunk, Vector3 worldPos, int baseX, int baseY, int baseZ, Color color, int brushSize)
+        {
+            int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
+            var voxels = chunk.voxels;
+            bool anyChange = false;
+
+            for (int dx = -brushSize + 1; dx < brushSize; dx++)
+                for (int dy = -brushSize + 1; dy < brushSize; dy++)
+                    for (int dz = -brushSize + 1; dz < brushSize; dz++)
+                    {
+                        int x = baseX + dx, y = baseY + dy, z = baseZ + dz;
+                        if (x < 0 || y < 0 || z < 0 || x >= chunkSize || y >= chunkSize || z >= chunkSize) continue;
+
+                        int idx = x + y * chunkSize + z * chunkSize * chunkSize;
+                        voxels[idx].color = color; // hoặc voxels[idx].SetColor(color); tùy Voxel struct/class
+                        anyChange = true;
+                    }
+
+            if (anyChange)
+            {
+                chunk.needsMeshRebuild = true;
+                chunk.modified = true;
+                VoxelPlayEnvironment.instance.RegisterChunkChanges(chunk); // nếu có
+            }
+            env.ChunkRedraw(chunk, includeNeighbours: false, refreshLightmap: false, refreshMesh: true);
+
+        }
+
+        void ToggleEraseMode() {
 			eraseMode = !eraseMode;
 			if (eraseMode) {
 				eraseModeText.text = "<color=green>Erase Mode</color> <color=yellow>ON</color>";
