@@ -8,6 +8,9 @@ namespace VoxelPlay {
     [ExecuteInEditMode]
     [HelpURL("https://kronnect.freshdesk.com/support/solutions/articles/42000001854-voxel-play-fps-controller")]
     public partial class VoxelPlayFirstPersonController : VoxelPlayCharacterControllerBase {
+        [NonSerialized] public bool blockInput = false; // chặn di chuyển/quay khi true
+        [NonSerialized]
+        public bool externalInputOnly = false; // Chỉ dùng input bên ngoài, không xử lý input nội bộ
 
         [Header("Movement")]
         public float walkSpeed = 5f;
@@ -294,7 +297,8 @@ namespace VoxelPlay {
         }
 
         protected virtual void UpdateWithCharacterController() {
-
+            if (blockInput || externalInputOnly) return;
+            
             CheckFootfalls();
 
             RotateView();
@@ -591,6 +595,7 @@ namespace VoxelPlay {
         }
 
         protected virtual void FixedUpdateImpl() {
+            if (blockInput || externalInputOnly) return;
 
             if (!hasCharacterController)
                 return;
@@ -801,38 +806,65 @@ namespace VoxelPlay {
             }
         }
 
-        protected virtual void GetInput(out float speed) {
+        protected virtual void GetInput(out float speed)
+        {
+            // Nếu dùng input ngoài, bỏ qua toàn bộ input gốc
+            if (externalInputOnly)
+            {
+                speed = 0;
+                m_Input = Vector3.zero;
+                isMoving = false;
+                isRunning = false;
+                thrustAmount = 0;
+                isThrusting = false;
+                return;
+            }
+
             float up = 0;
             bool wasRunning = isRunning;
-            if (input == null || !input.enabled) {
+            if (input == null || !input.enabled)
+            {
                 speed = 0;
                 return;
             }
 
-            if (input.GetButton(InputButtonNames.Up)) {
+            if (input.GetButton(InputButtonNames.Up))
+            {
                 up = 1f;
-            } else if (input.GetButton(InputButtonNames.Down)) {
+            }
+            else if (input.GetButton(InputButtonNames.Down))
+            {
                 up = -1f;
             }
 
             bool leftShiftPressed = input.GetButton(InputButtonNames.LeftShift);
 
             // set the desired speed to be walking or running
-            if (isFlying) {
+            if (isFlying)
+            {
                 speed = leftShiftPressed ? flySpeed * 2 : flySpeed;
-            } else if (isInWater) {
+            }
+            else if (isInWater)
+            {
                 speed = swimSpeed;
-            } else if (isCrouched) {
+            }
+            else if (isCrouched)
+            {
                 speed = walkSpeed * 0.25f;
-            } else if (!leftShiftPressed) {
+            }
+            else if (!leftShiftPressed)
+            {
                 speed = walkSpeed;
-            } else {
+            }
+            else
+            {
                 speed = runSpeed;
             }
             m_Input = new Vector3(input.horizontalAxis, input.verticalAxis, up);
 
             // normalize input if it exceeds 1 in combined length:
-            if (m_Input.sqrMagnitude > 1) {
+            if (m_Input.sqrMagnitude > 1)
+            {
                 m_Input.Normalize();
             }
 
@@ -840,24 +872,32 @@ namespace VoxelPlay {
 
             bool wasPressingMoveKeys = isPressingMoveKeys;
             isPressingMoveKeys = input.anyAxisButtonPressed;
-            if (isPressingMoveKeys) {
-                if (!wasPressingMoveKeys) {
+            if (isPressingMoveKeys)
+            {
+                if (!wasPressingMoveKeys)
+                {
                     moveStartTime = Time.time;
                 }
                 isRunning = leftShiftPressed && isMoving;
-            } else {
+            }
+            else
+            {
                 isRunning = false;
-                if (isGrounded) {
+                if (isGrounded)
+                {
                     speed = 0;
                 }
             }
 
             // thrust
-            if (manageThrust && input.GetButton(InputButtonNames.Thrust)) {
+            if (manageThrust && input.GetButton(InputButtonNames.Thrust))
+            {
                 float atmos = 1f / (1.0f + Mathf.Max(0, transform.position.y - thrustMaxAltitude));
                 thrustAmount = thrustPower * atmos;
                 isThrusting = true;
-            } else {
+            }
+            else
+            {
                 thrustAmount = 0;
                 isThrusting = false;
             }
@@ -865,13 +905,13 @@ namespace VoxelPlay {
             // handle speed change to give an fov kick
             // only if the player is going to a run, is running and the fovkick is to be used
 
-            if (useFovKick && isRunning != wasRunning && (isMoving || m_FovKick.isFOVUp)) {
-                 StopAllCoroutines ();
-                 StartCoroutine (isRunning ? m_FovKick.FOVKickUp () : m_FovKick.FOVKickDown (speed == 0 ? 5f: 1f));
+            if (useFovKick && isRunning != wasRunning && (isMoving || m_FovKick.isFOVUp))
+            {
+                StopAllCoroutines();
+                StartCoroutine(isRunning ? m_FovKick.FOVKickUp() : m_FovKick.FOVKickDown(speed == 0 ? 5f : 1f));
             }
 
         }
-
 
         private void RotateView() {
             if (switching) {

@@ -5,6 +5,7 @@ TagManager:
   serializedVersion: 2
   tags:
   - PicaVoxelVolume
+  - Voxel
   layers:
   - Default
   - TransparentFX
