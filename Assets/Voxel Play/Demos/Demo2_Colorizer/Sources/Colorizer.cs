@@ -21,13 +21,20 @@ namespace VoxelPlayDemos
         public GameObject modelRoot; // pivot/tâm mô hình
 
         VoxelPlayEnvironment env;
-        float orbitDistance;
-        VoxelPlayFirstPersonController fps;
         bool eraseMode;
         byte[] saveGameData;
         Color currentColor = Color.white;
         int modelSize = 32;
         int modelHeight = 32;
+        // Thêm ở đầu class
+        private Color32 currentBaseColor; // Màu gốc đang được tô vùng
+        private bool isPainting = false;
+
+        private int[,,] regionId;            // ID vùng cho mỗi voxel
+private Color32[] regionBaseColor;   // Màu gốc của từng vùng
+private bool[] regionPainted;        // Đã tô vùng chưa
+private int regionCount = 0;         // Tổng số vùng
+private int currentRegion = -1;      // Vùng đang thao tác
 
         // --- Tham số orbit
         float orbitYaw = 0f;
@@ -37,13 +44,13 @@ namespace VoxelPlayDemos
 #if !UNITY_EDITOR && (UNITY_IOS || UNITY_ANDROID)
         bool isDraggingScene = false;
         Vector2 dragStartPos;
+        Vector2 orbitLastPos;
         const float DRAG_THRESHOLD = 15f;
 #endif
 
         void Start()
         {
             env = VoxelPlayEnvironment.instance;
-            fps = (VoxelPlayFirstPersonController)env.characterController;
 
             CreateCube();
             CreateColorSwatch();
@@ -63,13 +70,6 @@ namespace VoxelPlayDemos
                 modeSwitchButton.onClick.AddListener(TogglePaintMode);
 
             UpdateModeSwitchText();
-
-            // KHÓA input controller khi khởi động (mặc định là tô màu)
-            if (fps != null)
-            {
-                fps.externalInputOnly = true;
-                fps.blockInput = true;
-            }
         }
 
         void Update()
@@ -103,6 +103,7 @@ namespace VoxelPlayDemos
                     if (t.phase == TouchPhase.Began)
                     {
                         dragStartPos = t.position;
+                        orbitLastPos = t.position;
                         isDraggingScene = false;
                     }
                     else if (t.phase == TouchPhase.Moved)
@@ -110,8 +111,15 @@ namespace VoxelPlayDemos
                         if (!isDraggingScene && (t.position - dragStartPos).magnitude > DRAG_THRESHOLD)
                             isDraggingScene = true;
 
-                        if (isDraggingScene)
-                            HandleOrbitInput();
+                        if (isDraggingScene){
+                            float dx = t.position.x - orbitLastPos.x;
+                            float dy = t.position.y - orbitLastPos.y;
+                            orbitYaw += dx * 0.2f;
+                            orbitPitch -= dy * 0.2f;
+                            orbitPitch = Mathf.Clamp(orbitPitch, -89f, 89f);
+                            UpdateCameraOrbit();
+                            orbitLastPos = t.position;
+                         }
                     }
                     else if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
                     {
@@ -126,6 +134,24 @@ namespace VoxelPlayDemos
                 lastPaintWorldPos = null;
 #endif
         }
+        Color32 GetBaseColor(int x, int y, int z)
+        {
+            // modelData.data flatten theo x + sx*(y + sy*z)
+            if (modelData == null) return new Color32(0, 0, 0, 0);
+            if (x < 0 || y < 0 || z < 0 || x >= modelData.sx || y >= modelData.sy || z >= modelData.sz) return new Color32(0, 0, 0, 0);
+            return modelData.data[x + modelData.sx * (y + modelData.sy * z)];
+        }
+        // Thêm hàm chuyển từ local index trong chunk sang global index trong model
+        void GetGlobalVoxelPos(VoxelChunk chunk, int cx, int cy, int cz, out int gx, out int gy, out int gz)
+        {
+            // Lấy offset chunk trong model, thường là số nguyên
+            int ox = (int)chunk.position.x;
+            int oy = (int)chunk.position.y;
+            int oz = (int)chunk.position.z;
+            gx = ox + cx;
+            gy = oy + cy;
+            gz = oz + cz;
+        }
 
         void HandlePaint()
         {
@@ -133,15 +159,26 @@ namespace VoxelPlayDemos
             VoxelHitInfo hit;
             if (env.RayCast(ray, out hit))
             {
-                Vector3 pos = hit.voxelCenter;
-                VoxelChunk chunk = hit.chunk;
-                int voxelIndex = hit.voxelIndex;
-                if (chunk != null && voxelIndex >= 0)
+                int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
+                int cx = hit.voxelIndex % chunkSize;
+                int cy = (hit.voxelIndex / chunkSize) % chunkSize;
+                int cz = hit.voxelIndex / (chunkSize * chunkSize);
+
+                int gx, gy, gz;
+                GetGlobalVoxelPos(hit.chunk, cx, cy, cz, out gx, out gy, out gz);
+
+                Color32 voxelBaseColor = GetBaseColor(gx, gy, gz);
+
+                if (Input.GetMouseButtonDown(0))
                 {
-                    int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
-                    int cx = voxelIndex % chunkSize;
-                    int cy = (voxelIndex / chunkSize) % chunkSize;
-                    int cz = voxelIndex / (chunkSize * chunkSize);
+                    currentBaseColor = voxelBaseColor;
+                    isPainting = true;
+                }
+
+                if (isPainting && voxelBaseColor.Equals(currentBaseColor))
+                {
+                    Vector3 pos = hit.voxelCenter;
+                    VoxelChunk chunk = hit.chunk;
 
                     if (lastPaintWorldPos.HasValue)
                     {
@@ -150,15 +187,24 @@ namespace VoxelPlayDemos
                         for (int i = 0; i <= steps; i++)
                         {
                             Vector3 lerpPos = Vector3.Lerp(lastPaintWorldPos.Value, pos, i / (float)steps);
-                            PaintBrush(chunk, lerpPos, cx, cy, cz, currentColor, brushSize);
+                            PaintBrushIfColorOK(chunk, cx, cy, cz, gx, gy, gz, lerpPos);
                         }
                     }
                     else
                     {
-                        PaintBrush(chunk, pos, cx, cy, cz, currentColor, brushSize);
+                        PaintBrushIfColorOK(chunk, cx, cy, cz, gx, gy, gz, pos);
                     }
                     lastPaintWorldPos = pos;
                 }
+
+                if (Input.GetMouseButtonUp(0))
+                {
+                    isPainting = false;
+                }
+            }
+            else
+            {
+                if (Input.GetMouseButtonUp(0)) isPainting = false;
             }
         }
 
@@ -178,13 +224,8 @@ namespace VoxelPlayDemos
         {
             isPaintMode = !isPaintMode;
             UpdateModeSwitchText();
-
-            if (fps != null)
-            {
-                fps.externalInputOnly = isPaintMode;  // true = chỉ nhận input từ script bên ngoài
-                fps.blockInput = isPaintMode;         // true = khóa input khi tô màu
-                fps.orbitMode = !isPaintMode;         // true = bật orbit khi chuyển sang chế độ XOAY
-            }
+            // Không liên quan controller nữa, chỉ update camera
+            UpdateCameraOrbit();
         }
 
         void UpdateModeSwitchText()
@@ -233,23 +274,24 @@ namespace VoxelPlayDemos
             float y = center.y + orbitRadius * Mathf.Sin(pitchRad);
             float z = center.z + orbitRadius * Mathf.Cos(pitchRad) * Mathf.Cos(yawRad);
 
-            if (fps != null)
+            // Điều khiển Camera chính luôn!
+            if (Camera.main != null)
             {
-                fps.transform.position = new Vector3(x, y, z);
-                fps.lookAt = center;
+                Camera.main.transform.position = new Vector3(x, y, z);
+                Camera.main.transform.LookAt(center);
             }
         }
 
         void SetupNavigation()
         {
             Vector3 center = modelRoot != null ? modelRoot.transform.position : new Vector3(modelData.sx / 2f, modelData.sy / 2f, modelData.sz / 2f);
-            orbitRadius = Mathf.Max(modelData.sx, modelData.sy, modelData.sz) * 1.5f;
+            orbitRadius = Mathf.Max(modelData.sx, modelData.sy, modelData.sz) * 1f;
             orbitYaw = 0f;
             orbitPitch = 20f;
             UpdateCameraOrbit();
         }
 
-        void PaintBrush(VoxelChunk chunk, Vector3 worldPos, int baseX, int baseY, int baseZ, Color color, int brushSize)
+        void PaintBrushIfColorOK(VoxelChunk chunk, int x, int y, int z, int gx, int gy, int gz, Vector3 worldPos)
         {
             int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
             var voxels = chunk.voxels;
@@ -259,14 +301,18 @@ namespace VoxelPlayDemos
                 for (int dy = -brushSize + 1; dy < brushSize; dy++)
                     for (int dz = -brushSize + 1; dz < brushSize; dz++)
                     {
-                        int x = baseX + dx, y = baseY + dy, z = baseZ + dz;
-                        if (x < 0 || y < 0 || z < 0 || x >= chunkSize || y >= chunkSize || z >= chunkSize) continue;
+                        int nx = x + dx, ny = y + dy, nz = z + dz;
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= chunkSize || ny >= chunkSize || nz >= chunkSize) continue;
 
-                        int idx = x + y * chunkSize + z * chunkSize * chunkSize;
-                        voxels[idx].color = color;
+                        int ngx, ngy, ngz;
+                        GetGlobalVoxelPos(chunk, nx, ny, nz, out ngx, out ngy, out ngz);
+
+                        if (!GetBaseColor(ngx, ngy, ngz).Equals(currentBaseColor)) continue;
+
+                        int idx = nx + ny * chunkSize + nz * chunkSize * chunkSize;
+                        voxels[idx].color = currentColor;
                         anyChange = true;
                     }
-
             if (anyChange)
             {
                 chunk.needsMeshRebuild = true;
