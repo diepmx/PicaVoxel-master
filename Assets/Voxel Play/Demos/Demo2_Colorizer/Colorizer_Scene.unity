@@ -677,16 +677,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   brushSize: 1
-  modelData: {fileID: 11400000, guid: 791232fdbe4ed8a42ab7e5913ddba2fd, type: 2}
+  modelData: {fileID: 11400000, guid: b0e634e33c925f846a4e93134a1255c4, type: 2}
   modeSwitchButton: {fileID: 1419691025}
   modeSwitchText: {fileID: 1609785977}
-  modelToLoad: {fileID: 11400000, guid: 7c7ed9f3d5abf440d8bcca88b1b29c70, type: 2}
+  modelToLoad: {fileID: 11400000, guid: 617faca0628c62c4286ba0e9bda7fc54, type: 2}
   font: {fileID: 12800000, guid: b42b48cd43dd64647b7a28b20e80bb5c, type: 3}
   textShader: {fileID: 4800000, guid: 35f2eab31eca748f49b9724e5ace1e92, type: 3}
   eraseModeText: {fileID: 34225011}
   globalIllumText: {fileID: 2099466657}
   colorButtonTemplate: {fileID: 1905529565}
   modelRoot: {fileID: 1087290574}
+  regionId: 
+  totalRegionCount: 0
+  regionIds: 
 --- !u!4 &406164087
 Transform:
   m_ObjectHideFlags: 0

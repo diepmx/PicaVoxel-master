@@ -2,6 +2,7 @@
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using VoxelPlay;
+using System.Collections.Generic;
 
 namespace VoxelPlayDemos
 {
@@ -19,7 +20,11 @@ namespace VoxelPlayDemos
         public Text eraseModeText, globalIllumText;
         public GameObject colorButtonTemplate;
         public GameObject modelRoot; // pivot/tâm mô hình
-
+        
+        public byte[] regionId; // Flatten: regionId[x + sx * (y + sy * z)]
+        [Header("Region Info (Debug)")]
+        public int totalRegionCount = 0;
+        public List<byte> regionIds = new List<byte>();
         VoxelPlayEnvironment env;
         bool eraseMode;
         byte[] saveGameData;
@@ -29,12 +34,11 @@ namespace VoxelPlayDemos
         // Thêm ở đầu class
         private Color32 currentBaseColor; // Màu gốc đang được tô vùng
         private bool isPainting = false;
-
-        private int[,,] regionId;            // ID vùng cho mỗi voxel
-private Color32[] regionBaseColor;   // Màu gốc của từng vùng
-private bool[] regionPainted;        // Đã tô vùng chưa
-private int regionCount = 0;         // Tổng số vùng
-private int currentRegion = -1;      // Vùng đang thao tác
+          // ID vùng cho mỗi voxel
+        private Color32[] regionBaseColor;   // Màu gốc của từng vùng
+        private bool[] regionPainted;        // Đã tô vùng chưa
+        private int regionCount = 0;         // Tổng số vùng
+        private int currentRegion = -1;      // Vùng đang thao tác
 
         // --- Tham số orbit
         float orbitYaw = 0f;
@@ -65,7 +69,7 @@ private int currentRegion = -1;      // Vùng đang thao tác
 
             SetupNavigation();
             UpdateCameraOrbit();
-
+            UpdateRegionInfo();
             if (modeSwitchButton != null)
                 modeSwitchButton.onClick.AddListener(TogglePaintMode);
 
@@ -84,12 +88,7 @@ private int currentRegion = -1;      // Vùng đang thao tác
             if (!isPaintMode)
                 HandleOrbitInput();
 
-            if (Input.GetKeyDown(KeyCode.X)) ToggleEraseMode();
-            if (Input.GetKeyDown(KeyCode.G)) ToggleGlobalIllum();
-            if (Input.GetKeyDown(KeyCode.F1)) LoadModel();
-            if (Input.GetKeyDown(KeyCode.F2)) SaveGame();
-            if (Input.GetKeyDown(KeyCode.F3)) LoadGame();
-
+            
             if (isPaintMode && Input.GetMouseButton(0))
                 HandlePaint();
             else
@@ -134,24 +133,31 @@ private int currentRegion = -1;      // Vùng đang thao tác
                 lastPaintWorldPos = null;
 #endif
         }
-        Color32 GetBaseColor(int x, int y, int z)
+        void UpdateRegionInfo()
         {
-            // modelData.data flatten theo x + sx*(y + sy*z)
-            if (modelData == null) return new Color32(0, 0, 0, 0);
-            if (x < 0 || y < 0 || z < 0 || x >= modelData.sx || y >= modelData.sy || z >= modelData.sz) return new Color32(0, 0, 0, 0);
-            return modelData.data[x + modelData.sx * (y + modelData.sy * z)];
+            HashSet<byte> regions = new HashSet<byte>();
+            if (modelData.regionId != null)
+            {
+                foreach (var rid in modelData.regionId)
+                {
+                    if (rid != 255) // chỉ đếm vùng hợp lệ
+                        regions.Add(rid);
+                }
+            }
+            totalRegionCount = regions.Count;
+            regionIds = new List<byte>(regions);
         }
+
         // Thêm hàm chuyển từ local index trong chunk sang global index trong model
         void GetGlobalVoxelPos(VoxelChunk chunk, int cx, int cy, int cz, out int gx, out int gy, out int gz)
         {
-            // Lấy offset chunk trong model, thường là số nguyên
-            int ox = (int)chunk.position.x;
-            int oy = (int)chunk.position.y;
-            int oz = (int)chunk.position.z;
-            gx = ox + cx;
-            gy = oy + cy;
-            gz = oz + cz;
+            gx = cx;
+            gy = cy;
+            gz = cz;
         }
+
+
+
 
         void HandlePaint()
         {
@@ -167,15 +173,26 @@ private int currentRegion = -1;      // Vùng đang thao tác
                 int gx, gy, gz;
                 GetGlobalVoxelPos(hit.chunk, cx, cy, cz, out gx, out gy, out gz);
 
-                Color32 voxelBaseColor = GetBaseColor(gx, gy, gz);
+                // Thêm debug và kiểm tra hợp lệ:
+                if (gx < 0 || gy < 0 || gz < 0 || gx >= modelData.sx || gy >= modelData.sy || gz >= modelData.sz)
+                {
+                    Debug.LogWarning($"[HandlePaint] Out of range: ({gx},{gy},{gz}) vs model ({modelData.sx},{modelData.sy},{modelData.sz})");
+                    return;
+                }
+
+                byte region = modelData.GetRegion(gx, gy, gz);
+                Debug.Log($"[Debug] Click voxel ({gx},{gy},{gz}) regionId = {region}");
+                if (region == 255) // Không phải bề mặt, bỏ qua
+                    return;
 
                 if (Input.GetMouseButtonDown(0))
                 {
-                    currentBaseColor = voxelBaseColor;
+                    currentRegion = region;
                     isPainting = true;
                 }
 
-                if (isPainting && voxelBaseColor.Equals(currentBaseColor))
+                // Chỉ tô nếu đang vẽ và region đúng
+                if (isPainting && modelData.GetRegion(gx, gy, gz) == currentRegion)
                 {
                     Vector3 pos = hit.voxelCenter;
                     VoxelChunk chunk = hit.chunk;
@@ -187,12 +204,12 @@ private int currentRegion = -1;      // Vùng đang thao tác
                         for (int i = 0; i <= steps; i++)
                         {
                             Vector3 lerpPos = Vector3.Lerp(lastPaintWorldPos.Value, pos, i / (float)steps);
-                            PaintBrushIfColorOK(chunk, cx, cy, cz, gx, gy, gz, lerpPos);
+                            PaintBrushIfRegion(chunk, cx, cy, cz, gx, gy, gz, pos);
                         }
                     }
                     else
                     {
-                        PaintBrushIfColorOK(chunk, cx, cy, cz, gx, gy, gz, pos);
+                        PaintBrushIfRegion(chunk, cx, cy, cz, gx, gy, gz, pos);
                     }
                     lastPaintWorldPos = pos;
                 }
@@ -200,6 +217,7 @@ private int currentRegion = -1;      // Vùng đang thao tác
                 if (Input.GetMouseButtonUp(0))
                 {
                     isPainting = false;
+                    currentRegion = -1;
                 }
             }
             else
@@ -291,7 +309,7 @@ private int currentRegion = -1;      // Vùng đang thao tác
             UpdateCameraOrbit();
         }
 
-        void PaintBrushIfColorOK(VoxelChunk chunk, int x, int y, int z, int gx, int gy, int gz, Vector3 worldPos)
+        void PaintBrushIfRegion(VoxelChunk chunk, int x, int y, int z, int gx, int gy, int gz, Vector3 worldPos)
         {
             int chunkSize = VoxelPlayEnvironment.CHUNK_SIZE;
             var voxels = chunk.voxels;
@@ -302,12 +320,18 @@ private int currentRegion = -1;      // Vùng đang thao tác
                     for (int dz = -brushSize + 1; dz < brushSize; dz++)
                     {
                         int nx = x + dx, ny = y + dy, nz = z + dz;
-                        if (nx < 0 || ny < 0 || nz < 0 || nx >= chunkSize || ny >= chunkSize || nz >= chunkSize) continue;
-
                         int ngx, ngy, ngz;
                         GetGlobalVoxelPos(chunk, nx, ny, nz, out ngx, out ngy, out ngz);
 
-                        if (!GetBaseColor(ngx, ngy, ngz).Equals(currentBaseColor)) continue;
+                        // Debug kiểm tra index
+                        if (ngx < 0 || ngy < 0 || ngz < 0 || ngx >= modelData.sx || ngy >= modelData.sy || ngz >= modelData.sz)
+                        {
+                            Debug.LogWarning($"[PaintBrushIfRegion] Out of range: ({ngx},{ngy},{ngz}) vs model ({modelData.sx},{modelData.sy},{modelData.sz})");
+                            continue;
+                        }
+
+                        if (modelData.GetRegion(ngx, ngy, ngz) != currentRegion) continue;
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= chunkSize || ny >= chunkSize || nz >= chunkSize) continue;
 
                         int idx = nx + ny * chunkSize + nz * chunkSize * chunkSize;
                         voxels[idx].color = currentColor;

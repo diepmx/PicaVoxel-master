@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEditor;
 using System.IO;
+using System.Drawing;
 
 public class VoxelBinImporter : EditorWindow
 {
@@ -56,25 +57,30 @@ public class VoxelBinImporter : EditorWindow
         using (BinaryReader reader = new BinaryReader(File.Open(binPath, FileMode.Open)))
         {
             int sizeX = reader.ReadInt32();
-            int sizeY = reader.ReadInt32();
             int sizeZ = reader.ReadInt32();
+            int sizeY = reader.ReadInt32();
             int len = sizeX * sizeY * sizeZ;
 
+
             Color32[] data = new Color32[len];
+            byte[] regionId = new byte[len];
             for (int i = 0; i < len; i++)
             {
                 byte r = reader.ReadByte();
                 byte g = reader.ReadByte();
                 byte b = reader.ReadByte();
                 byte a = reader.ReadByte();
+                byte reg = reader.ReadByte();
                 data[i] = new Color32(r, g, b, a);
+                regionId[i] = reg;
             }
 
             var asset = ScriptableObject.CreateInstance<VoxelModelData>();
             asset.sx = sizeX;
-            asset.sy = sizeY;
             asset.sz = sizeZ;
+            asset.sy = sizeY;
             asset.data = data;
+            asset.regionId = regionId; // Thêm dòng này
 
             AssetDatabase.CreateAsset(asset, savePath);
             AssetDatabase.SaveAssets();
@@ -83,4 +89,5 @@ public class VoxelBinImporter : EditorWindow
             Debug.Log("Import thành công! Asset đã được tạo: " + savePath);
         }
     }
+
 }
